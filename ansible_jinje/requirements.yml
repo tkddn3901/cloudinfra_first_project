@@ -1,0 +1,13 @@
+# ~/ansible/requirements.yml
+# Ansible Galaxy 외부 role/collection 목록
+# 실행: ansible-galaxy install -r requirements.yml
+#       ansible-galaxy collection install -r requirements.yml
+
+roles:
+  # Nginx 설치 및 vhost 설정 (ansible09_nginx 실습에서 사용한 role)
+  - name: geerlingguy.nginx
+
+collections:
+  # Node Exporter 포함 Prometheus 계열 collection (ansible10 실습에서 사용)
+  # node_exporter role 은 이 collection 안에 포함되어 있음
+  - name: prometheus.prometheus

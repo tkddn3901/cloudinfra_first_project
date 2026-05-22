@@ -1,0 +1,18 @@
+# ~/ansible/site.yml
+# 전체 인프라 한 번에 구성하는 통합 플레이북
+# 실행: ansible-playbook site.yml
+---
+# 0단계: MGMT 서버 초기 세팅 (Ansible, Terraform, FastAPI)
+- import_playbook: mgmt_setup.yml
+
+# 1단계: EC2 초기 셋팅 (계정 생성, SSH 키 주입) - web + db 만 대상
+- import_playbook: ec2_bootstrap.yml
+
+# 2단계: 지역 EC2 웹서버 환경 구성 (강남구 Amazon Linux + 은평구 Ubuntu)
+- import_playbook: web_setup.yml
+
+# 3단계: DB EC2 PostgreSQL 구성
+- import_playbook: db_setup.yml
+
+# 4단계: VMware Rocky Linux 시각화 서버 구성 (Prometheus + Grafana)
+# - import_playbook: monitoring_setup.yml

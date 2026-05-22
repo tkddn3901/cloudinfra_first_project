@@ -1,0 +1,55 @@
+# ~/ansible/db_remove.yml
+# DB EC2 PostgreSQL 완전 삭제 (ansible09_galaxy postgre_remove 패턴 기반)
+# 실행: ansible-playbook db_remove.yml
+---
+- name: "DB EC2 PostgreSQL 완전 삭제"
+  hosts: db
+  become: yes
+
+  tasks:
+    - name: "1. PostgreSQL 서비스 중지"
+      systemd:
+        name: postgresql
+        state: stopped
+      ignore_errors: yes   # 이미 없거나 꺼져 있어도 에러 없이 진행
+
+    - name: "2-A. 패키지 완전 삭제 (Amazon Linux - dnf)"
+      dnf:
+        name:
+          - postgresql-server
+          - postgresql-contrib
+          - postgresql
+          - python3-psycopg2
+        state: absent
+        autoremove: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: "2-B. 패키지 완전 삭제 (Ubuntu - apt)"
+      apt:
+        name:
+          - postgresql
+          - postgresql-contrib
+          - postgresql-client-common
+          - postgresql-common
+          - python3-psycopg2
+        state: absent
+        purge: yes         # Ubuntu 특유의 설정 파일까지 완전 삭제
+        autoremove: yes
+      when: ansible_os_family == "Debian"
+
+    - name: "3. 잔여 데이터 · 설정 · 로그 폴더 삭제"
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/pgsql/        # Amazon Linux 데이터 폴더
+        - /var/lib/postgresql/   # Ubuntu 데이터 폴더
+        - /etc/postgresql/       # Ubuntu 설정 폴더
+        - /var/log/postgresql/   # Ubuntu 로그 폴더
+      # 해당 OS 에 없는 경로는 에러 없이 스킵됨
+
+    - name: "4. postgres OS 시스템 계정 삭제"
+      user:
+        name: postgres
+        state: absent
+        remove: yes   # 홈 디렉토리까지 함께 삭제

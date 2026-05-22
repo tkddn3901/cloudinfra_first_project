@@ -1,0 +1,200 @@
+# ~/test-folder/postgre-SQL_setup.yml
+## 해당 ansible 파일이 db server의 instance에서 실행될 예정입니다.
+---
+- name: PostgreSQL 설치 및 셋업 (Amazon Linux / Ubuntu 공용)
+  hosts: db
+  become: yes
+  vars:
+    db_name: "scott_db"
+    db_user: "scott"
+    db_pass: "tiger"
+
+  tasks:
+    - name: 0. OS 확인 출력
+      debug:
+        msg: "현재 OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+    - name: 0-1. 지원하지 않는 OS 차단
+      fail:
+        msg: "지원하지 않는 OS입니다: {{ ansible_distribution }}"
+      when: ansible_distribution not in ["Amazon", "Ubuntu", "Rocky"]
+      
+    # ===================== Ubuntu =====================
+    - name: 1-B. [Ubuntu] apt 캐시 업데이트
+      apt:
+        update_cache: yes
+      when: ansible_distribution == "Ubuntu"
+
+    - name: 2-B. [Ubuntu] 패키지 설치
+      apt:
+        name:
+          - postgresql
+          - postgresql-contrib
+          - python3-psycopg2
+          - acl
+        state: present
+      when: ansible_distribution == "Ubuntu"
+
+    - name: 3-B. [Ubuntu] postgresql.conf 경로 자동 감지
+      shell: find /etc/postgresql -name postgresql.conf | head -1
+      register: pg_conf_found
+      changed_when: false
+      when: ansible_distribution == "Ubuntu"
+
+    - name: 3-C. [Ubuntu] pg_hba.conf 경로 자동 감지
+      shell: find /etc/postgresql -name pg_hba.conf | head -1
+      register: pg_hba_found
+      changed_when: false
+      when: ansible_distribution == "Ubuntu"
+
+    - name: 3-D. [Ubuntu] 설정 파일 경로 변수 세팅
+      set_fact:
+        pg_conf_path: "{{ pg_conf_found.stdout }}"
+        pg_hba_path: "{{ pg_hba_found.stdout }}"
+        pg_unix_socket: /var/run/postgresql
+        pg_tmp_dir: /var/lib/postgresql/.ansible/tmp
+        pg_tmp_owner: postgres
+        pg_hba_auth: "scram-sha-256"
+      when: ansible_distribution == "Ubuntu"
+
+    - name: 3-E. [Ubuntu] 감지된 경로 출력
+      debug:
+        msg:
+          - "postgresql.conf: {{ pg_conf_path }}"
+          - "pg_hba.conf: {{ pg_hba_path }}"
+      when: ansible_distribution == "Ubuntu"
+
+    # ===================== 공통 =====================
+    - name: 4. PostgreSQL 서비스명 자동 감지
+      shell: |
+        systemctl list-unit-files | grep -i postgres | awk '{print $1}' | head -1
+      register: pg_service_raw
+      changed_when: false
+      failed_when: pg_service_raw.stdout == ""
+
+    - name: 4-1. 감지된 서비스명 출력
+      debug:
+        msg: "감지된 서비스명: {{ pg_service_raw.stdout }}"
+
+    - name: 5. PostgreSQL 서비스 시작 및 자동실행 설정
+      systemd:
+        name: "{{ pg_service_raw.stdout }}"
+        state: started
+        enabled: yes
+
+    - name: 5-1. postgresql 데이터 디렉토리 소유자 변경 (scott으로)
+      file:
+        path: /var/lib/postgresql
+        owner: scott
+        group: scott
+        state: directory
+        recurse: yes
+      ignore_errors: yes
+
+    - name: 5-2. PostgreSQL 설정 파일 소유자 변경 (scott으로)
+      file:
+        path: /etc/postgresql
+        owner: scott
+        group: scott
+        state: directory
+        recurse: yes
+      ignore_errors: yes
+
+    - name: 6. 외부 접속 허용 (listen_addresses)
+      lineinfile:
+        path: "{{ pg_conf_path }}"
+        regexp: '^#?listen_addresses'
+        line: "listen_addresses = '*'"
+      notify: restart_postgresql
+
+    - name: 7. 로컬 호스트 인증 md5 변경
+      replace:
+        path: "{{ pg_hba_path }}"
+        regexp: '^(host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128)\s+){{ pg_hba_auth }}$'
+        replace: '\1md5'
+      notify: restart_postgresql
+
+    - name: 8. 외부 네트워크 md5 허용 추가
+      lineinfile:
+        path: "{{ pg_hba_path }}"
+        insertafter: EOF
+        line: "host    all     all     0.0.0.0/0     md5"
+      notify: restart_postgresql
+
+    - name: 9. ansible 임시 디렉토리 생성
+      file:
+        path: "{{ pg_tmp_dir }}"
+        state: directory
+        owner: "{{ pg_tmp_owner }}"
+        group: "{{ pg_tmp_owner }}"
+        mode: '0700'
+
+    - name: 10. postgres 슈퍼유저 비밀번호 설정
+      postgresql_user:
+        name: postgres
+        password: "{{ db_pass }}"
+        login_unix_socket: "{{ pg_unix_socket }}"
+      become_user: postgres
+
+    - name: 11. 애플리케이션 유저 생성
+      postgresql_user:
+        name: "{{ db_user }}"
+        password: "{{ db_pass }}"
+        state: present
+        login_unix_socket: "{{ pg_unix_socket }}"
+      become_user: postgres
+
+    - name: 12. 데이터베이스 생성
+      postgresql_db:
+        name: "{{ db_name }}"
+        owner: "{{ db_user }}"
+        login_unix_socket: "{{ pg_unix_socket }}"
+      become_user: postgres
+
+    - name: 13. route_congestion_level 테이블 생성
+      postgresql_query:
+        db: "{{ db_name }}"
+        login_unix_socket: "{{ pg_unix_socket }}"
+        query: |
+          CREATE TABLE IF NOT EXISTS route_congestion_level (
+            opr_ymd DATE           NOT NULL,
+            sgg_nm  VARCHAR(100),
+            emd_nm  VARCHAR(100),
+            tzon    INTEGER,
+            cgst    NUMERIC(5,2),
+            PRIMARY KEY (opr_ymd, sgg_nm, emd_nm, tzon));
+      become_user: postgres
+
+    - name: 14. 최종 검증 - DB 존재 확인
+      postgresql_query:
+        db: "{{ db_name }}"
+        login_unix_socket: "{{ pg_unix_socket }}"
+        query: "SELECT 1 FROM pg_database WHERE datname = '{{ db_name }}'"
+      register: db_check
+      failed_when: db_check.rowcount == 0
+      become_user: postgres
+
+    - name: 15. 최종 검증 - 테이블 존재 확인
+      postgresql_query:
+        db: "{{ db_name }}"
+        login_unix_socket: "{{ pg_unix_socket }}"
+        query: "SELECT 1 FROM information_schema.tables WHERE table_name = 'route_congestion_level'"
+      register: table_check
+      failed_when: table_check.rowcount == 0
+      become_user: postgres
+
+    - name: 16. 셋업 완료 메시지
+      debug:
+        msg:
+          - "PostgreSQL 셋업 완료"
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "설정파일: {{ pg_conf_path }}"
+          - "DB명: {{ db_name }}"
+          - "유저: {{ db_user }}"
+          - "테이블: route_congestion_level"
+
+  handlers:
+    - name: restart_postgresql
+      systemd:
+        name: "{{ pg_service_raw.stdout }}"
+        state: restarted

@@ -1,0 +1,79 @@
+#!/bin/bash
+# Prometheus 자동 설치 & EC2 Service Discovery 설정
+# - templatefile() 보간 변수: $${aws_region}
+# - bash 변수는 $$ 로 escape 되어 있음
+set -eux
+
+PROM_VERSION="2.51.0"
+
+dnf install -y tar gzip
+
+id prometheus >/dev/null 2>&1 || useradd --no-create-home --shell /bin/false prometheus
+
+cd /tmp
+curl -fsSLO "https://github.com/prometheus/prometheus/releases/download/v$${PROM_VERSION}/prometheus-$${PROM_VERSION}.linux-amd64.tar.gz"
+tar xzf "prometheus-$${PROM_VERSION}.linux-amd64.tar.gz"
+cd "prometheus-$${PROM_VERSION}.linux-amd64"
+
+install -m 0755 prometheus /usr/local/bin/prometheus
+install -m 0755 promtool   /usr/local/bin/promtool
+
+mkdir -p /etc/prometheus /var/lib/prometheus
+cp -r consoles console_libraries /etc/prometheus/
+chown -R prometheus:prometheus /etc/prometheus /var/lib/prometheus
+
+cat > /etc/prometheus/prometheus.yml <<'PROMCONF'
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: node_exporter_asg
+    ec2_sd_configs:
+      - region: ${aws_region}
+        port: 9100
+        filters:
+          - name: tag:Role
+            values: [web]
+          - name: instance-state-name
+            values: [running]
+    relabel_configs:
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: instance
+      - source_labels: [__meta_ec2_private_ip]
+        target_label: private_ip
+      - source_labels: [__meta_ec2_availability_zone]
+        target_label: az
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+PROMCONF
+chown prometheus:prometheus /etc/prometheus/prometheus.yml
+
+cat > /etc/systemd/system/prometheus.service <<'SERVICE'
+[Unit]
+Description=Prometheus
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=prometheus
+Group=prometheus
+Type=simple
+ExecStart=/usr/local/bin/prometheus \
+  --config.file=/etc/prometheus/prometheus.yml \
+  --storage.tsdb.path=/var/lib/prometheus/ \
+  --web.console.templates=/etc/prometheus/consoles \
+  --web.console.libraries=/etc/prometheus/console_libraries \
+  --web.listen-address=0.0.0.0:9090
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+systemctl daemon-reload
+systemctl enable --now prometheus

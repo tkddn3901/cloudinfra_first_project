@@ -1,0 +1,10 @@
+# rockylinux packer 설치 
+sudo yum install -y yum-utils
+sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/RHEL/hashicorp.repo
+sudo yum -y install packer
+
+# packer 초기화
+packer init ami_web.pkr.hcl
+
+# packer 로 ami 이미지 만들어서 aws 에 등록
+packer build ami_web.pkr.hcl

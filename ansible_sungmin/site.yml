@@ -1,0 +1,24 @@
+- name: "관리 서버(localhost) - Prometheus 설치"
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  vars:
+    # 컬렉션 역할(include_role)에 플레이 vars 가 확실히 넘어가도록 여기서 스크레이프를 정의한다.
+    # file_sd + prometheus_targets 조합은 래퍼 역할 defaults 가 안 넘어가 빈 타겟이 되는 경우가 있어 static_configs 사용.
+    prometheus_targets: {}
+    prometheus_scrape_configs:
+      - job_name: "prometheus"
+        metrics_path: "/metrics"
+        static_configs:
+          - targets:
+              - "localhost:9090"
+      - job_name: "node"
+        metrics_path: "/metrics"
+        static_configs:
+          - targets: "{{ groups['all'] | reject('equalto', 'localhost') | map('regex_replace', '^(.+)$', '\\1:9100') | list }}"
+            labels:
+              env: "teamproject-bug"
+
+  roles:
+    - prometheus

@@ -1,0 +1,71 @@
+# Terraform — 로컬 캐시·상태·로그
+
+# 플러그인/모듈 캐시
+**/.terraform/*
+
+# 상태 파일 (민감 정보·환경별로 달라짐)
+*.tfstate
+*.tfstate.*
+
+# apply/plan 중 잠금 정보
+.terraform.tfstate.lock.info
+
+# 크래시 로그
+crash.log
+crash.*.log
+
+# CLI 설정(로컬)
+.terraformrc
+terraform.rc
+
+# tfvars — 시크릿·환경별 값이 들어가기 쉬움 (예시는 *.tfvars.example 로 커밋)
+*.tfvars
+*.tfvars.json
+
+# 로컬 덮어쓰기용
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# plan 결과물 (바이너리·민감 정보 포함 가능)
+*.tfplan
+*.tfplan.*
+planfile
+
+# SSH 키 / 인증서 (pem.tf 로 생성되는 프라이빗 키 포함)
+*.pem
+*.key
+*.pub
+*.ppk
+id_rsa*
+id_ed25519*
+
+# 환경 변수 파일
+.env
+.env.*
+!.env.example
+
+# IDE / 에디터 설정
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# OS 생성 파일
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 백업·임시 파일
+*.bak
+*.tmp
+*.log
+
+# Python 가상환경 (ansible 관련 작업용)
+.venv/
+venv/
+__pycache__/
+*.pyc

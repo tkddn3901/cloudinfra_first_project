@@ -1,0 +1,29 @@
+# terraform_example/.gitignore
+
+# .gitignore
+# Local .terraform directories
+**/.terraform/*
+.terraform.lock.hcl
+
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+
+# Crash log files
+crash.log
+
+
+# tfvars
+terraform.tfvars
+
+
+# Packer 관련 임시 파일 및 캐시 제외
+.packer/
+packer_plugins/
+LICENSE.txt
+
+# 오작동으로 생겼던 가짜 사전 파일들이나 임시 로그 방지
+version.*
+*.log

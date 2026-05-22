@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>버스 혼잡도 MGMT 대시보드</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body { background: #f0f2f5; }
+    .status-card  { min-height: 220px; color: #fff; border-radius: 12px; }
+    .score-val    { font-size: 3rem; font-weight: 700; line-height: 1; }
+    .stage-한적   { background: linear-gradient(135deg, #0d6efd, #084298); }
+    .stage-원활   { background: linear-gradient(135deg, #198754, #145c38); }
+    .stage-혼잡   { background: linear-gradient(135deg, #dc3545, #a31a27); }
+    .stage-없음   { background: linear-gradient(135deg, #6c757d, #495057); }
+    .ip-badge     { font-family: monospace; font-size: 0.85em; }
+    .toast-container { position: fixed; bottom: 1rem; right: 1rem; z-index: 9999; }
+  </style>
+</head>
+<body>
+
+<!-- 네비게이션 -->
+<nav class="navbar navbar-dark bg-dark shadow-sm">
+  <div class="container-fluid">
+    <span class="navbar-brand fw-bold">🚌 버스 혼잡도 MGMT 대시보드</span>
+    <div class="d-flex align-items-center gap-2">
+      <span class="text-secondary small" id="last-updated">-</span>
+      <button class="btn btn-sm btn-warning" onclick="manualCollect(this)">수동 수집</button>
+      <button class="btn btn-sm btn-outline-success" id="auto-btn" onclick="toggleAutoRefresh()">자동갱신 ON</button>
+    </div>
+  </div>
+</nav>
+
+<!-- 토스트 알림 -->
+<div class="toast-container">
+  <div id="toast" class="toast align-items-center text-bg-success border-0" role="alert">
+    <div class="d-flex">
+      <div class="toast-body" id="toast-msg">완료</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<div class="container-fluid py-3">
+
+  <!-- ── 지역별 상태 카드 ── -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-6">
+      <div class="card status-card stage-없음 p-4" id="card-강남구">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="score-val" id="score-강남구">-</div>
+            <div class="fs-4 mt-1">강남구</div>
+            <span class="badge bg-light text-dark fs-6 mt-1" id="stage-badge-강남구">-</span>
+          </div>
+          <div class="text-end">
+            <div class="fs-6 opacity-75">ASG 목표</div>
+            <div class="fs-3 fw-bold" id="asg-desired-강남구">-</div>
+            <div class="opacity-75 small">실행 중: <span id="asg-running-강남구">-</span>대</div>
+          </div>
+        </div>
+        <hr class="border-light opacity-25 my-2">
+        <div class="small opacity-75 mb-1">인스턴스 IP</div>
+        <div id="instances-강남구" class="d-flex flex-wrap gap-1">
+          <span class="badge bg-light text-muted ip-badge">데이터 없음</span>
+        </div>
+        <div class="mt-2 opacity-60 small" id="date-강남구"></div>
+        {% if alb_url %}
+        <a href="{{ alb_url }}/gangnam" target="_blank" class="btn btn-light btn-sm mt-2 fw-semibold">
+          🔗 강남구 대시보드 →
+        </a>
+        {% else %}
+        <button class="btn btn-light btn-sm mt-2 fw-semibold opacity-50" disabled title="ALB_URL 환경변수를 설정하세요">
+          🔗 강남구 대시보드 (ALB 미설정)
+        </button>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card status-card stage-없음 p-4" id="card-은평구">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="score-val" id="score-은평구">-</div>
+            <div class="fs-4 mt-1">은평구</div>
+            <span class="badge bg-light text-dark fs-6 mt-1" id="stage-badge-은평구">-</span>
+          </div>
+          <div class="text-end">
+            <div class="fs-6 opacity-75">ASG 목표</div>
+            <div class="fs-3 fw-bold" id="asg-desired-은평구">-</div>
+            <div class="opacity-75 small">실행 중: <span id="asg-running-은평구">-</span>대</div>
+          </div>
+        </div>
+        <hr class="border-light opacity-25 my-2">
+        <div class="small opacity-75 mb-1">인스턴스 IP</div>
+        <div id="instances-은평구" class="d-flex flex-wrap gap-1">
+          <span class="badge bg-light text-muted ip-badge">데이터 없음</span>
+        </div>
+        <div class="mt-2 opacity-60 small" id="date-은평구"></div>
+        {% if alb_url %}
+        <a href="{{ alb_url }}/eunpyeong" target="_blank" class="btn btn-light btn-sm mt-2 fw-semibold">
+          🔗 은평구 대시보드 →
+        </a>
+        {% else %}
+        <button class="btn btn-light btn-sm mt-2 fw-semibold opacity-50" disabled title="ALB_URL 환경변수를 설정하세요">
+          🔗 은평구 대시보드 (ALB 미설정)
+        </button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 오토스케일링 기준 안내 ── -->
+  <div class="alert alert-info d-flex gap-3 align-items-center mb-4 py-2">
+    <strong>오토스케일링 기준</strong>
+    <span class="badge bg-secondary">avg_cgst ≤ 10 → 한적 (EC2 0대)</span>
+    <span class="badge bg-success">11 ~ 60 → 원활 (EC2 1대)</span>
+    <span class="badge bg-danger">61 이상 → 혼잡 (EC2 2대)</span>
+    <span class="text-muted small ms-auto">ASG DesiredCapacity 직접 설정</span>
+  </div>
+
+  <!-- ── 시간대별 혼잡도 차트 ── -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong>시간대별 혼잡도 (최근 수집일 기준)</strong>
+      <select class="form-select form-select-sm w-auto" id="chart-region" onchange="loadChart()">
+        <option value="강남구">강남구</option>
+        <option value="은평구">은평구</option>
+      </select>
+    </div>
+    <div class="card-body">
+      <canvas id="cgst-chart" height="80"></canvas>
+    </div>
+  </div>
+
+  <!-- ── 수집 결과 로그 ── -->
+  <div class="card shadow-sm">
+    <div class="card-header"><strong>최근 수집 결과</strong></div>
+    <div class="card-body">
+      <pre id="collect-log" class="mb-0 text-muted small" style="min-height:60px;">수동 수집 버튼을 누르면 결과가 표시됩니다.</pre>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const STAGE_CLASS = { "한적": "stage-한적", "원활": "stage-원활", "혼잡": "stage-혼잡", "데이터 없음": "stage-없음" };
+let chart = null;
+let autoTimer = null;
+
+// ── 토스트 ──────────────────────────────────────
+function showToast(msg, type = "success") {
+  const el = document.getElementById("toast");
+  document.getElementById("toast-msg").textContent = msg;
+  el.className = `toast align-items-center text-bg-${type} border-0`;
+  bootstrap.Toast.getOrCreateInstance(el).show();
+}
+
+// ── 상태 카드 업데이트 ───────────────────────────
+async function loadStatus() {
+  const data = await fetch("/status").then(r => r.json());
+
+  for (const [sgg_nm, info] of Object.entries(data)) {
+    const stageClass = STAGE_CLASS[info.stage] || "stage-없음";
+    const card = document.getElementById(`card-${sgg_nm}`);
+
+    // 카드 색상 교체
+    card.className = `card status-card p-4 ${stageClass}`;
+
+    document.getElementById(`score-${sgg_nm}`).textContent =
+      info.avg_cgst !== null ? info.avg_cgst.toFixed(1) : "-";
+
+    document.getElementById(`stage-badge-${sgg_nm}`).textContent =
+      info.stage || "-";
+
+    const asg = info.asg || {};
+    document.getElementById(`asg-desired-${sgg_nm}`).textContent =
+      asg.desired !== undefined ? `${asg.desired}대` : "-";
+    document.getElementById(`asg-running-${sgg_nm}`).textContent =
+      asg.running !== undefined ? asg.running : "-";
+
+    // 인스턴스 IP 목록
+    const ipContainer = document.getElementById(`instances-${sgg_nm}`);
+    const instances = asg.instances || [];
+    if (instances.length === 0) {
+      ipContainer.innerHTML = '<span class="badge bg-light text-muted ip-badge">실행 중인 인스턴스 없음</span>';
+    } else {
+      ipContainer.innerHTML = instances.map(inst =>
+        `<span class="badge bg-light text-dark ip-badge" title="${inst.instance_id}">
+           ${inst.private_ip}
+           <span class="text-${inst.state === 'running' ? 'success' : 'secondary'} ms-1">●</span>
+         </span>`
+      ).join("");
+    }
+
+    document.getElementById(`date-${sgg_nm}`).textContent =
+      info.last_date ? `수집일: ${info.last_date}` : "";
+  }
+
+  document.getElementById("last-updated").textContent =
+    `갱신: ${new Date().toLocaleTimeString("ko-KR")}`;
+}
+
+// ── 시간대별 차트 ────────────────────────────────
+async function loadChart() {
+  const sgg_nm = document.getElementById("chart-region").value;
+  const { data } = await fetch(`/history/${encodeURIComponent(sgg_nm)}`).then(r => r.json());
+
+  const labels = data.map(d => `${d.tzon}시`);
+  const values = data.map(d => d.avg_cgst);
+  const colors = values.map(v =>
+    v <= 10 ? "#6c757d" : v <= 60 ? "#198754" : "#dc3545"
+  );
+
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById("cgst-chart"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: `${sgg_nm} 시간대별 평균 혼잡도`,
+        data: values,
+        backgroundColor: colors,
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        annotation: {},
+      },
+      scales: {
+        y: {
+          min: 0, max: 100,
+          title: { display: true, text: "평균 cgst" },
+        },
+        x: {
+          title: { display: true, text: "시간대 (tzon)" },
+        },
+      },
+    },
+  });
+}
+
+// ── 수동 수집 ────────────────────────────────────
+async function manualCollect(btn) {
+  btn.disabled = true;
+  btn.textContent = "수집 중...";
+  document.getElementById("collect-log").textContent = "API 호출 중...";
+  try {
+    const resp = await fetch("/collect", { method: "POST" });
+    const data = await resp.json();
+    document.getElementById("collect-log").textContent =
+      JSON.stringify(data.results, null, 2);
+    await Promise.all([loadStatus(), loadChart()]);
+    showToast("수동 수집 완료");
+  } catch (e) {
+    document.getElementById("collect-log").textContent = `에러: ${e}`;
+    showToast("수집 실패", "danger");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "수동 수집";
+  }
+}
+
+// ── 자동 갱신 ────────────────────────────────────
+function toggleAutoRefresh() {
+  const btn = document.getElementById("auto-btn");
+  if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+    btn.textContent = "자동갱신 OFF";
+    btn.className = "btn btn-sm btn-outline-secondary";
+  } else {
+    startAutoRefresh();
+    btn.textContent = "자동갱신 ON";
+    btn.className = "btn btn-sm btn-outline-success";
+  }
+}
+
+function startAutoRefresh() {
+  autoTimer = setInterval(async () => {
+    await Promise.all([loadStatus(), loadChart()]);
+  }, 30_000);
+}
+
+// ── 초기화 ───────────────────────────────────────
+Promise.all([loadStatus(), loadChart()]);
+startAutoRefresh();
+</script>
+</body>
+</html>

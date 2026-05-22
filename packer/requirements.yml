@@ -1,0 +1,11 @@
+# ~/packer/requirements.yml
+# Packer 빌드 시 ansible provisioner 가 자동으로 설치하는 Galaxy 의존성
+# (ami_web.pkr.hcl 의 provisioner "ansible" -> galaxy_file 옵션에서 참조)
+---
+collections:
+  # Node Exporter role 포함 (monitor_setup.yml 에서 사용)
+  - name: prometheus.prometheus
+
+roles:
+  # Nginx 설치 및 vhost 설정 (web_setup.yml 에서 사용)
+  - name: geerlingguy.nginx

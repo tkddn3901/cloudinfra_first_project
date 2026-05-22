@@ -1,0 +1,14 @@
+# fetcher.py
+requests
+SQLAlchemy
+psycopg2-binary
+
+# api.py
+fastapi
+uvicorn[standard]
+SQLAlchemy[asyncio]
+asyncpg
+pydantic
+jinja2
+python-multipart
+python-dotenv

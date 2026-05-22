@@ -1,0 +1,89 @@
+# ~/ansible/db_setup.yml
+# DB EC2 PostgreSQL 설치 및 셋팅 (ansible08_postgre_ubuntu 패턴 기반)
+# 실행: ansible-playbook db_setup.yml
+---
+- name: "DB EC2 PostgreSQL 환경 구성"
+  hosts: db
+  become: yes
+
+  vars:
+    db_name: "traffic_db"      # 생성할 데이터베이스 이름
+    db_user: "traffic_user"    # 애플리케이션용 DB 계정
+    db_pass: "changeme"        # DB 계정 비밀번호 (실제 배포 시 변경 필요)
+    postgres_pass: "changeme"  # postgres 슈퍼유저 비밀번호
+    pg_conf_path: "/etc/postgresql/16/main/postgresql.conf"
+    pg_hba_path:  "/etc/postgresql/16/main/pg_hba.conf"
+
+  tasks:
+    - name: "1. 필수 패키지 설치"
+      apt:
+        name:
+          - postgresql          # PostgreSQL 본체
+          - postgresql-contrib  # 확장 기능 패키지
+          - python3-psycopg2    # Ansible 이 DB 를 제어하기 위한 라이브러리
+          - acl                 # become_user: postgres 전환 시 에러 방지
+        state: present
+        update_cache: yes
+
+    - name: "2. 외부 접속 허용 (listen_addresses = '*')"
+      lineinfile:
+        path: "{{ pg_conf_path }}"
+        regexp: "^#?listen_addresses"
+        line: "listen_addresses = '*'"
+        state: present
+      notify: restart_postgresql
+
+    - name: "3. 패스워드 암호화 방식 md5 로 강제 지정"
+      lineinfile:
+        path: "{{ pg_conf_path }}"
+        regexp: "^#?password_encryption"
+        line: "password_encryption = md5"
+        state: present
+      notify: restart_postgresql
+
+    - name: "4. localhost 에서 비밀번호 접속 허용 (md5)"
+      replace:
+        path: "{{ pg_hba_path }}"
+        regexp: '^(host\s+all\s+all\s+(127\.0\.0\.1\/32|::1\/128)\s+)(ident|scram-sha-256|trust|peer)$'
+        replace: '\1md5'
+      notify: restart_postgresql
+
+    - name: "5. VPC 내부 대역 (10.0.0.0/8) 접속 허용"
+      lineinfile:
+        path: "{{ pg_hba_path }}"
+        line: "host     all     all     10.0.0.0/8     md5"
+        insertafter: EOF
+      notify: restart_postgresql
+
+    - name: "6. PostgreSQL 서비스 시작 및 자동 실행 등록"
+      systemd:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: "7. DB 계정 생성"
+      postgresql_user:
+        name: "{{ db_user }}"
+        password: "{{ db_pass }}"
+      become: yes
+      become_user: postgres
+
+    - name: "8. DB 생성 및 소유권 부여"
+      postgresql_db:
+        name: "{{ db_name }}"
+        owner: "{{ db_user }}"
+      become: yes
+      become_user: postgres
+
+    - name: "9. postgres 슈퍼유저 비밀번호 설정"
+      postgresql_user:
+        name: postgres
+        password: "{{ postgres_pass }}"
+      become: yes
+      become_user: postgres
+
+  handlers:
+    - name: restart_postgresql
+      systemd:
+        name: postgresql
+        state: restarted

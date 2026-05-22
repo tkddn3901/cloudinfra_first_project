@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="refresh" content="30">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>강남구 버스 혼잡도</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body      { background: #f8f0f0; }
+    .top-bar  { background: #a52323; color: #fff; padding: 16px 24px; }
+    .ip-box   { background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; }
+    .ip-value { font-family: monospace; font-size: 1.4rem; font-weight: 700; color: #6c3d00; }
+    .score    { font-size: 3.5rem; font-weight: 700; color: #a52323; }
+  </style>
+</head>
+<body>
+
+<!-- 헤더 -->
+<div class="top-bar d-flex justify-content-between align-items-center">
+  <div>
+    <span class="fs-4 fw-bold">🚌 강남구 버스 혼잡도 대시보드</span>
+    <span class="ms-3 opacity-75 small">기준일: {{ opr_ymd }}</span>
+  </div>
+  <span class="opacity-75 small">30초마다 자동 새로고침</span>
+</div>
+
+<div class="container-fluid py-3">
+  <div class="row g-3">
+
+    <!-- ① 로드밸런싱 확인 -->
+    <div class="col-md-4">
+      <div class="card h-100 shadow-sm">
+        <div class="card-header bg-warning text-dark fw-bold">
+          🔄 로드밸런싱 확인
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-2">현재 이 응답을 처리한 서버 IP</p>
+          <div class="ip-box text-center p-3 mb-3">
+            <div class="ip-value">{{ host_ip }}</div>
+          </div>
+          <div class="alert alert-info py-2 small mb-0">
+            💡 새로고침 시 IP가 바뀌면 <strong>로드밸런싱 정상</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ② 현재 혼잡도 -->
+    <div class="col-md-4">
+      <div class="card h-100 shadow-sm">
+        <div class="card-header bg-danger text-white fw-bold">
+          📊 현재 혼잡도
+        </div>
+        <div class="card-body text-center">
+          <div class="score mt-2">
+            {{ avg_cgst if avg_cgst is not none else '-' }}
+          </div>
+          <div class="text-muted small mb-3">평균 혼잡도 지수 (cgst)</div>
+          {% if avg_cgst is not none %}
+          <span class="badge bg-{{ stage_color }} fs-5 px-4 py-2">{{ stage }}</span>
+          <div class="mt-3 text-muted small">
+            한적(≤10) / 원활(11~60) / 혼잡(61~)
+          </div>
+          {% else %}
+          <span class="text-muted">DB에 데이터가 없습니다</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- ③ 오토스케일링 현황 -->
+    <div class="col-md-4">
+      <div class="card h-100 shadow-sm">
+        <div class="card-header bg-dark text-white fw-bold">
+          ⚙️ 오토스케일링 현황
+        </div>
+        <div class="card-body">
+          <div class="d-flex justify-content-around text-center mb-3">
+            <div>
+              <div class="fs-1 fw-bold text-primary">{{ asg.desired if asg.desired is defined else '-' }}</div>
+              <div class="text-muted small">목표 대수</div>
+            </div>
+            <div class="border-start"></div>
+            <div>
+              <div class="fs-1 fw-bold text-success">{{ asg.running if asg.running is defined else '-' }}</div>
+              <div class="text-muted small">실행 중</div>
+            </div>
+          </div>
+          <hr>
+          <div class="small text-muted mb-1">인스턴스 Private IP</div>
+          {% if asg.instances %}
+            {% for inst in asg.instances %}
+            <span class="badge bg-secondary font-monospace me-1 mb-1">
+              {{ inst.private_ip }}
+              {% if inst.state == 'running' %}🟢{% else %}🔴{% endif %}
+            </span>
+            {% endfor %}
+          {% else %}
+          <span class="text-muted small">실행 중인 인스턴스 없음 (0단계)</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /row -->
+
+  <!-- ④ 시간대별 혼잡도 테이블 -->
+  <div class="card shadow-sm mt-3">
+    <div class="card-header fw-bold">🕐 시간대별 평균 혼잡도</div>
+    <div class="card-body p-0">
+      {% if tzon_data %}
+      <table class="table table-sm table-bordered mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th class="text-center">시간대 (tzon)</th>
+            <th class="text-center">평균 혼잡도</th>
+            <th class="text-center">단계</th>
+            <th>혼잡도 바</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in tzon_data %}
+          {% if item.avg_cgst <= 10 %}
+            {% set row_class = "table-secondary" %}{% set label = "한적" %}
+          {% elif item.avg_cgst <= 60 %}
+            {% set row_class = "table-success" %}{% set label = "원활" %}
+          {% else %}
+            {% set row_class = "table-danger" %}{% set label = "혼잡" %}
+          {% endif %}
+          <tr class="{{ row_class }}">
+            <td class="text-center fw-bold">{{ item.tzon }}시</td>
+            <td class="text-center">{{ item.avg_cgst }}</td>
+            <td class="text-center">{{ label }}</td>
+            <td>
+              <div class="progress" style="height:14px;">
+                <div class="progress-bar bg-{{ 'secondary' if item.avg_cgst <= 10 else 'success' if item.avg_cgst <= 60 else 'danger' }}"
+                     style="width:{{ item.avg_cgst }}%"></div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="text-center text-muted py-4">조회된 데이터가 없습니다.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <footer class="text-center text-muted small mt-3">
+    강남구 교통정보 시스템 {{ opr_ymd }}
+  </footer>
+</div>
+</body>
+</html>

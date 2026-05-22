@@ -1,0 +1,8 @@
+# ~/packer/site.yml
+# Packer AMI 빌드 전용 통합 플레이북
+# 임시 빌더 EC2 에 적용할 playbook 들을 import 해서 한 번에 실행
+---
+# Node Exporter 설치 (hosts: all)
+- import_playbook: ../ansible_jinje/ec2_bootstrap.yml
+- import_playbook: ../ansible_jinje/web_setup.yml
+- import_playbook: monitor_setup.yml

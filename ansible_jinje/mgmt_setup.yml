@@ -1,0 +1,119 @@
+# ~/ansible/mgmt_setup.yml
+# MGMT EC2 초기 환경 구성
+# 실행: ansible-playbook mgmt_setup.yml
+---
+- name: "MGMT 서버 초기 세팅"
+  hosts: mgmt
+  become: yes
+
+  tasks:
+    # ── 기본 패키지 ──────────────────────────────────────────
+    - name: "1. Python3, pip, git 설치"
+      dnf:
+        name:
+          - python3
+          - python3-pip
+          - git
+          - yum-utils
+        state: present
+
+    # ── Ansible 설치 ──────────────────────────────────────────
+    - name: "2. Ansible 설치"
+      pip:
+        name: ansible
+        executable: pip3
+
+    # ── Terraform 설치 ───────────────────────────────────────
+    - name: "3. HashiCorp YUM 저장소 등록"
+      command:
+        cmd: yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+        creates: /etc/yum.repos.d/hashicorp.repo
+
+    - name: "4. Terraform 설치"
+      dnf:
+        name: terraform
+        state: present
+
+    # ── mgmt FastAPI 코드 복사 ────────────────────────────────
+    - name: "5. mgmt 앱 디렉토리 생성"
+      file:
+        path: /home/ec2-user/mgmt
+        state: directory
+        owner: ec2-user
+        mode: "0755"
+
+    - name: "6. mgmt 코드 복사"
+      copy:
+        src: ../mgmt/
+        dest: /home/ec2-user/mgmt/
+        owner: ec2-user
+        mode: "0644"
+
+    # ── FastAPI 의존성 설치 ───────────────────────────────────
+    - name: "7. Python 가상환경 생성"
+      command:
+        cmd: python3 -m venv /home/ec2-user/mgmt/venv
+        creates: /home/ec2-user/mgmt/venv
+
+    - name: "8. requirements.txt 패키지 설치"
+      pip:
+        requirements: /home/ec2-user/mgmt/requirements.txt
+        virtualenv: /home/ec2-user/mgmt/venv
+
+    # ── systemd 서비스 등록 ───────────────────────────────────
+    - name: "9. FastAPI systemd 서비스 등록"
+      copy:
+        dest: /etc/systemd/system/mgmt-api.service
+        content: |
+          [Unit]
+          Description=MGMT FastAPI Server
+          After=network.target
+
+          [Service]
+          User=ec2-user
+          WorkingDirectory=/home/ec2-user/mgmt
+          ExecStart=/home/ec2-user/mgmt/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: "10. FastAPI 서비스 시작 및 자동 실행 등록"
+      systemd:
+        name: mgmt-api
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    # ── Nginx 리버스 프록시 ───────────────────────────────────
+    - name: "11. Nginx 설치"
+      dnf:
+        name: nginx
+        state: present
+
+    - name: "12. Nginx 리버스 프록시 설정"
+      copy:
+        dest: /etc/nginx/conf.d/mgmt.conf
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              location / {
+                  proxy_pass         http://127.0.0.1:8000;
+                  proxy_set_header   Host $host;
+                  proxy_set_header   X-Real-IP $remote_addr;
+              }
+          }
+
+    - name: "13. 기본 Nginx 설정 비활성화"
+      file:
+        path: /etc/nginx/conf.d/default.conf
+        state: absent
+
+    - name: "14. Nginx 시작 및 자동 실행 등록"
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+        daemon_reload: yes

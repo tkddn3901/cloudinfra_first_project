@@ -1,0 +1,40 @@
+# ~/ansible/ec2_bootstrap.yml
+# EC2 인스턴스 최초 접속 후 초기 셋팅 (Amazon Linux + Ubuntu)
+# 실행: ansible-playbook ec2_bootstrap.yml --private-key ~/.ssh/bugTeam-mgmt-key.pem
+---
+- name: "EC2 인스턴스 초기 셋팅"
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: "1. 운영 계정(user1) 생성 (Amazon Linux)"
+      user:
+        name: user1
+        shell: /bin/bash
+        groups: wheel
+        append: yes
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: "1. 운영 계정(user1) 생성 (Ubuntu)"
+      user:
+        name: user1
+        shell: /bin/bash
+        groups: sudo
+        append: yes
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: "2. user1 sudo 비밀번호 없이 실행 허용"
+      # /etc/sudoers 직접 수정은 위험하므로 /etc/sudoers.d/ 에 별도 파일로 추가
+      copy:
+        dest: "/etc/sudoers.d/user1"
+        content: "user1  ALL=(ALL)  NOPASSWD: ALL"
+        mode: "0440"    # sudoers.d 파일은 반드시 readonly 권한이어야 함
+
+    - name: "3. MGMT 서버의 공개키를 EC2 에 등록 (이후 비밀번호 없이 SSH 접속 가능)"
+      # ~/.ssh/authorized_keys 에 공개키를 자동으로 추가해주는 모듈
+      authorized_key:
+        user: user1
+        state: present
+        key: "{{ lookup('file', '~/.ssh/bugTeam-mgmt-key.pem.pub') }}"

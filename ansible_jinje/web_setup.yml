@@ -1,0 +1,146 @@
+# ~/ansible/web_setup.yml
+# 지역 EC2 웹서버 환경 구성
+# - Packer 프로비저너로 AMI 빌드 시 사용
+# - 직접 실행: ansible-playbook web_setup.yml
+---
+- name: "지역 EC2 웹서버 환경 구성"
+  hosts: all          # Packer 단일 인스턴스 대응 (직접 실행 시 -l web 으로 제한)
+  become: yes
+
+  vars:
+    deploy_user:  "user1"         # 베이스 AMI 기본 유저 (Amazon Linux면 ec2-user)
+    deploy_group: "user1"
+    app_dir:      "/opt/bugteam"
+    database_url: "postgresql+asyncpg://scott:tiger@10.0.3.158/scott_db"
+    mgmt_url:     "http://10.0.0.10:8000"
+
+    # geerlingguy.nginx Role 설정
+    nginx_vhosts:
+      - listen: "80"
+        server_name: "_"
+        extra_parameters: |
+          location / {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          }
+    nginx_remove_default_vhost: true
+
+  pre_tasks:
+
+    # ── SELinux (Amazon Linux) ─────────────────────────────
+    - name: "0. SELinux Nginx 프록시 허용 (Amazon Linux)"
+      seboolean:
+        name: httpd_can_network_connect
+        state: yes
+        persistent: yes
+      when: ansible_os_family == "RedHat"
+      ignore_errors: yes
+
+    # ── 패키지 설치 ────────────────────────────────────────
+    - name: "1. Python3, pip, git 설치 (Amazon Linux)"
+      dnf:
+        name: [python3, python3-pip, git]
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: "1. Python3, pip, venv, git 설치 (Ubuntu)"
+      apt:
+        name: [python3, python3-pip, python3-venv, git]
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    # ── 앱 디렉토리 ────────────────────────────────────────
+    - name: "2. 앱 디렉토리 및 templates 폴더 생성"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
+        mode: "0755"
+      loop:
+        - "{{ app_dir }}"
+        - "{{ app_dir }}/templates"
+
+    # ── 소스 파일 복사 ─────────────────────────────────────
+    - name: "3. api.py 복사"
+      copy:
+        src: ../../DB-yunsung/api.py     # gangnam / eunpyeong 동일 코드
+        dest: "{{ app_dir }}/api.py"
+        owner: "{{ deploy_user }}"
+        mode: "0644"
+
+    - name: "4. requirements.txt 복사"
+      copy:
+        src: ../../DB-yunsung/requirements.txt
+        dest: "{{ app_dir }}/requirements.txt"
+        owner: "{{ deploy_user }}"
+        mode: "0644"
+
+    - name: "5. HTML 템플릿 복사 (gangnam.html)"
+      copy:
+        src: ../../DB-yunsung/gangnam.html
+        dest: "{{ app_dir }}/templates/gangnam.html"
+        owner: "{{ deploy_user }}"
+        mode: "0644"
+
+    - name: "5. HTML 템플릿 복사 (eunpyeong.html)"
+      copy:
+        src: ../../DB-yunsung/eunpyeong.html
+        dest: "{{ app_dir }}/templates/eunpyeong.html"
+        owner: "{{ deploy_user }}"
+        mode: "0644"
+
+    # ── Python 가상환경 ────────────────────────────────────
+    - name: "6. Python 가상환경 생성"
+      command:
+        cmd: python3 -m venv "{{ app_dir }}/venv"
+        creates: "{{ app_dir }}/venv"
+
+    - name: "7. requirements 패키지 설치"
+      pip:
+        requirements: "{{ app_dir }}/requirements.txt"
+        virtualenv: "{{ app_dir }}/venv"
+      become_user: "{{ deploy_user }}"
+
+    # ── systemd 서비스 ─────────────────────────────────────
+    - name: "8. FastAPI systemd 서비스 등록"
+      copy:
+        dest: /etc/systemd/system/fastapi.service
+        content: |
+          [Unit]
+          Description=FastAPI Web App
+          After=network.target
+
+          [Service]
+          User={{ deploy_user }}
+          Group={{ deploy_group }}
+          WorkingDirectory={{ app_dir }}
+          Environment=DATABASE_URL={{ database_url }}
+          Environment=MGMT_URL={{ mgmt_url }}
+          ExecStart={{ app_dir }}/venv/bin/uvicorn api:app --host 0.0.0.0 --port 8000
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart_fastapi
+
+    - name: "9. FastAPI 서비스 부팅 시 자동 시작 등록"
+      systemd:
+        name: fastapi
+        enabled: yes
+        daemon_reload: yes
+      # Packer 빌드 중에는 DB 미접속 상태이므로 state: started 사용 안 함
+      # 인스턴스 기동 시 systemd 가 자동으로 시작함
+
+  roles:
+    - role: geerlingguy.nginx
+
+  handlers:
+    - name: restart_fastapi
+      systemd:
+        name: fastapi
+        state: restarted

@@ -1,0 +1,6 @@
+---
+- name: "Prometheus 설치 및 설정(collection 활용)"
+  include_role:
+    name: prometheus.prometheus.prometheus
+  vars:
+    prometheus_version: "2.47.0"

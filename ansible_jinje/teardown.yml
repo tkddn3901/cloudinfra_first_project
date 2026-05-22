@@ -1,0 +1,12 @@
+# ~/ansible/teardown.yml
+# 전체 인프라 한 번에 제거하는 통합 플레이북 (site.yml 의 반대)
+# 실행: ansible-playbook teardown.yml
+---
+# 1단계: 지역 EC2 웹서버 환경 제거
+- import_playbook: web_remove.yml
+
+# 2단계: DB EC2 PostgreSQL 제거
+- import_playbook: db_remove.yml
+
+# 3단계: VMware 시각화 서버 Prometheus + Grafana 제거
+# - import_playbook: monitoring_remove.yml

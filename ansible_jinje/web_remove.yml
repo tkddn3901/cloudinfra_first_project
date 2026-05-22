@@ -1,0 +1,78 @@
+# ~/ansible/web_remove.yml
+# 지역 EC2 (강남구 / 은평구) 에 설치한 것들 완전 제거
+# 실행: ansible-playbook web_remove.yml
+---
+- name: "지역 EC2 웹서버 환경 제거"
+  hosts: web
+  become: yes
+
+  tasks:
+    # ── Nginx 제거 ──────────────────────────────────────────
+    - name: "1. Nginx 서비스 중지"
+      service:
+        name: nginx
+        state: stopped
+        enabled: no
+      ignore_errors: yes   # 이미 없거나 꺼져 있어도 에러 없이 진행
+
+    - name: "2-A. Nginx 패키지 삭제 (Amazon Linux - dnf)"
+      dnf:
+        name: nginx
+        state: absent
+        autoremove: yes    # 의존성 찌꺼기 함께 제거
+      when: ansible_os_family == "RedHat"
+
+    - name: "2-B. Nginx 패키지 삭제 (Ubuntu - apt)"
+      apt:
+        name: nginx
+        state: absent
+        purge: yes         # 설정 파일까지 완전 삭제
+        autoremove: yes
+      when: ansible_os_family == "Debian"
+
+    - name: "3. Nginx 잔여 설정 파일 삭제"
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/nginx
+        - /var/log/nginx
+
+    # ── FastAPI 제거 ─────────────────────────────────────────
+    - name: "4. FastAPI 서비스 중지"
+      systemd:
+        name: fastapi
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: "5. FastAPI systemd 서비스 파일 삭제"
+      file:
+        path: /etc/systemd/system/fastapi.service
+        state: absent
+
+    - name: "6. systemd 데몬 리로드 (삭제된 서비스 파일 반영)"
+      systemd:
+        daemon_reload: yes
+
+    - name: "7. 앱 디렉토리 전체 삭제 (소스코드 + venv 포함)"
+      file:
+        path: /opt/bugteam
+        state: absent
+
+    # ── Node Exporter 제거 ────────────────────────────────────
+    - name: "8. Node Exporter 서비스 중지"
+      systemd:
+        name: node_exporter
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: "9. Node Exporter 관련 파일 삭제"
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/local/bin/node_exporter              # 실행 바이너리
+        - /etc/systemd/system/node_exporter.service # 서비스 파일
+        - /tmp/node_exporter.tar.gz                 # 다운로드 임시 파일
